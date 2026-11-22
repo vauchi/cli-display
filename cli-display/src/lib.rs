@@ -3,5 +3,6 @@
 
 //! Generic CLI projection, input and invocation output for the Vauchi contract.
 
+pub mod host;
 pub mod invocation;
 pub mod presentation;
