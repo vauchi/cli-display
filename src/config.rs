@@ -22,9 +22,9 @@ use vauchi_core::storage::secure::{FileKeyStorage, SecureStorage};
 /// platforms are refused rather than written unprotected: the CLI is not
 /// shipped for them (private#285).
 pub fn write_restricted(path: &Path, data: impl AsRef<[u8]>) -> anyhow::Result<()> {
-    use anyhow::Context;
     #[cfg(unix)]
     {
+        use anyhow::Context;
         use std::io::Write as _;
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         let mut file = std::fs::OpenOptions::new()
