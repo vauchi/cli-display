@@ -58,6 +58,9 @@ impl CommandReducer for FakeReducer {
     }
 
     fn dispatch(&mut self, event: Event) -> Result<Vec<Command>, Self::Error> {
+        if matches!(event, Event::PresentationEnvironmentChanged { .. }) {
+            return Ok(Vec::new());
+        }
         assert!(matches!(
             event,
             Event::ActionActivated { interaction_id, .. }
@@ -93,6 +96,107 @@ fn generic_session_exits_only_when_core_requests_native_back() {
     assert!(String::from_utf8(output).unwrap().contains("Session"));
 }
 
+struct EnvironmentRecordingReducer {
+    events: Vec<Event>,
+}
+
+impl CommandReducer for EnvironmentRecordingReducer {
+    type Error = std::convert::Infallible;
+
+    fn initial_commands(&mut self) -> Result<Vec<Command>, Self::Error> {
+        Ok(vec![
+            Command::ReplaceSurface {
+                surface: surface(1, "Session"),
+            },
+            Command::SetContextBar {
+                surface_id: SurfaceId::new("welcome").unwrap(),
+                revision: 1,
+                bar: Box::new(ContextBar {
+                    primary: Some(action("opaque-token", "Continue")),
+                    ..ContextBar::default()
+                }),
+            },
+        ])
+    }
+
+    fn dispatch(&mut self, event: Event) -> Result<Vec<Command>, Self::Error> {
+        self.events.push(event);
+        Ok(vec![Command::PerformNativeBack])
+    }
+}
+
+// @internal
+#[test]
+fn session_reports_the_terminal_environment_before_the_first_prompt() {
+    let mut reducer = EnvironmentRecordingReducer { events: Vec::new() };
+    let mut input = std::io::Cursor::new(b"1\n");
+    let mut output = Vec::new();
+
+    run_with_io(&mut reducer, &mut input, &mut output).expect("environment-reporting session");
+
+    assert_eq!(reducer.events.len(), 1);
+    let Event::PresentationEnvironmentChanged {
+        available_width,
+        available_height,
+        input_modes,
+        color_scheme,
+        pinned_actions,
+        ..
+    } = &reducer.events[0]
+    else {
+        panic!("expected an environment report, got {:?}", reducer.events);
+    };
+    assert_eq!((*available_width, *available_height), (80, 24));
+    assert_eq!(input_modes, &vec![vauchi_core::InputMode::Keyboard]);
+    assert_eq!(*color_scheme, None);
+    assert!(*pinned_actions);
+    assert!(output.is_empty(), "Core closed the session before a prompt");
+}
+
+struct EnvironmentRefusingReducer {
+    activated: Vec<Event>,
+}
+
+impl CommandReducer for EnvironmentRefusingReducer {
+    type Error = String;
+
+    fn initial_commands(&mut self) -> Result<Vec<Command>, Self::Error> {
+        EnvironmentRecordingReducer { events: Vec::new() }
+            .initial_commands()
+            .map_err(|never| match never {})
+    }
+
+    fn dispatch(&mut self, event: Event) -> Result<Vec<Command>, Self::Error> {
+        if matches!(event, Event::PresentationEnvironmentChanged { .. }) {
+            return Err("environment refused while locked".to_owned());
+        }
+        self.activated.push(event);
+        Ok(vec![Command::PerformNativeBack])
+    }
+}
+
+// The report only tells Core what the terminal draws; a Core that refuses
+// it keeps the answers in the content, so the session goes on.
+// @internal
+#[test]
+fn a_refused_environment_report_does_not_end_the_session() {
+    let mut reducer = EnvironmentRefusingReducer {
+        activated: Vec::new(),
+    };
+    let mut input = std::io::Cursor::new(b"1\n");
+    let mut output = Vec::new();
+
+    run_with_io(&mut reducer, &mut input, &mut output).expect("session survives the refusal");
+
+    assert_eq!(
+        reducer.activated,
+        vec![Event::ActionActivated {
+            surface_id: SurfaceId::new("welcome").unwrap(),
+            interaction_id: vauchi_core::InteractionId::new("opaque-token").unwrap(),
+        }]
+    );
+}
+
 struct FilePickReducer {
     expected_bytes: Vec<u8>,
     expected_filename: String,
@@ -111,6 +215,9 @@ impl CommandReducer for FilePickReducer {
     }
 
     fn dispatch(&mut self, event: Event) -> Result<Vec<Command>, Self::Error> {
+        if matches!(event, Event::PresentationEnvironmentChanged { .. }) {
+            return Ok(Vec::new());
+        }
         assert_eq!(
             event,
             Event::FilePickedFromUser {

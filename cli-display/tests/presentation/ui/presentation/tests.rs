@@ -209,6 +209,92 @@ fn renderer_and_activation_use_only_generic_protocol_values() {
     );
 }
 
+fn presentation_with_bar(bar: ContextBar) -> PresentationState {
+    let mut state = PresentationState::default();
+    state.apply(&[
+        Command::ReplaceSurface {
+            surface: surface(6, "Reconnect"),
+        },
+        Command::SetContextBar {
+            surface_id: SurfaceId::new("welcome").unwrap(),
+            revision: 6,
+            bar: Box::new(bar),
+        },
+    ]);
+    state
+}
+
+fn pinned_action(id: &str, label: &str) -> ActionSpec {
+    ActionSpec {
+        shortcut: None,
+        ..action(id, label)
+    }
+}
+
+// @scenario: generic_presentation_protocol.feature :: Every shell renders the same prepared presentation
+#[test]
+fn pinned_actions_render_after_content_in_core_order_before_primary() {
+    let state = presentation_with_bar(ContextBar {
+        primary: Some(action("reconnect.done", "Done")),
+        pinned: vec![
+            pinned_action("reconnect.yes", "Yes, reconnect Alice"),
+            pinned_action("reconnect.no", "No, stop the exchange"),
+        ],
+        ..ContextBar::default()
+    });
+
+    let rendered = console::strip_ansi_codes(&render_to_string(&state)).into_owned();
+    assert_eq!(
+        rendered,
+        "\n  Reconnect\n  Prepared by Core\n\n  Hello\n──────────────────────────────────────────────────\n  1. Yes, reconnect Alice\n  2. No, stop the exchange\n  3. Done\n"
+    );
+}
+
+// @scenario: generic_presentation_protocol.feature :: Every shell renders the same prepared presentation
+#[test]
+fn a_bar_without_pinned_actions_renders_no_pinned_group() {
+    let state = presentation_with_bar(ContextBar {
+        primary: Some(action("reconnect.done", "Done")),
+        ..ContextBar::default()
+    });
+
+    let rendered = console::strip_ansi_codes(&render_to_string(&state)).into_owned();
+    assert_eq!(
+        rendered,
+        "\n  Reconnect\n  Prepared by Core\n\n  Hello\n──────────────────────────────────────────────────\n  1. Done\n"
+    );
+}
+
+// @scenario: generic_presentation_protocol.feature :: User interaction returns as an opaque event
+#[test]
+fn prompt_taps_the_second_pinned_answer_and_dispatches_its_interaction_id() {
+    let state = presentation_with_bar(ContextBar {
+        primary: Some(action("reconnect.done", "Done")),
+        pinned: vec![
+            pinned_action("reconnect.yes", "Yes, reconnect Alice"),
+            pinned_action("reconnect.no", "No, stop the exchange"),
+        ],
+        ..ContextBar::default()
+    });
+    let mut input = std::io::Cursor::new(b"2\n");
+    let mut output = Vec::new();
+
+    let event = prompt_event(&state, &mut Default::default(), &mut input, &mut output)
+        .expect("second pinned answer");
+
+    assert_eq!(
+        event,
+        Event::ActionActivated {
+            surface_id: SurfaceId::new("welcome").unwrap(),
+            interaction_id: InteractionId::new("reconnect.no").unwrap(),
+        }
+    );
+    assert_eq!(
+        String::from_utf8(output).unwrap(),
+        "  1. Yes, reconnect Alice\n  2. No, stop the exchange\n  3. Done\n  Choose (1-3) > "
+    );
+}
+
 // @scenario: generic_presentation_protocol.feature :: Every shell renders the same prepared presentation
 #[test]
 fn cli_consumes_the_core_owned_presentation_contract_fixture() {
