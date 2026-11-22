@@ -121,15 +121,17 @@ impl PresentationState {
         }
         if let Some(bar) = &self.context_bar {
             actions.extend(
-                [
-                    bar.back.as_ref(),
-                    bar.navigation.as_ref(),
-                    bar.primary.as_ref(),
-                    bar.secondary.as_ref(),
-                ]
-                .into_iter()
-                .flatten()
-                .cloned(),
+                [bar.back.as_ref(), bar.navigation.as_ref()]
+                    .into_iter()
+                    .flatten()
+                    .cloned(),
+            );
+            actions.extend(bar.pinned.iter().cloned());
+            actions.extend(
+                [bar.primary.as_ref(), bar.secondary.as_ref()]
+                    .into_iter()
+                    .flatten()
+                    .cloned(),
             );
         }
         actions

@@ -2,15 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::fmt::Display;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, IsTerminal, Write};
 
 use vauchi_app::ui::AppEngine;
-use vauchi_core::{Command, Event};
+use vauchi_core::{Command, Event, InputMode, MotionPreference};
 
 use super::{
     OfferedInputs, PresentationState, SecretReader, prompt_event, prompt_event_with,
     render_to_string,
 };
+
+const FALLBACK_TERMINAL_SIZE: (u32, u32) = (80, 24);
 
 /// Reads a password or PIN at the terminal without echoing it
 /// (vauchi/private#630).
@@ -46,24 +48,55 @@ impl CommandReducer for AppEngine {
 }
 
 pub fn run_engine(engine: &mut AppEngine) -> anyhow::Result<()> {
-    use std::io::IsTerminal as _;
     let stdin = io::stdin();
     let stdout = io::stdout();
     let (mut input, mut output) = (stdin.lock(), stdout.lock());
     if stdin.is_terminal() {
-        run_session(engine, &mut input, &mut output, Some(&mut TerminalSecrets))
+        run_session(
+            engine,
+            &mut input,
+            &mut output,
+            Some(&mut TerminalSecrets),
+            terminal_size(),
+        )
     } else {
         run_with_io(engine, &mut input, &mut output)
     }
     .map_err(Into::into)
 }
 
+/// Piped input is scripted, so Core gets the same 80x24 every run.
 pub fn run_with_io(
     reducer: &mut impl CommandReducer,
     input: &mut impl BufRead,
     output: &mut impl Write,
 ) -> io::Result<()> {
-    run_session(reducer, input, output, None)
+    run_session(reducer, input, output, None, FALLBACK_TERMINAL_SIZE)
+}
+
+fn terminal_size() -> (u32, u32) {
+    if !io::stdout().is_terminal() {
+        return FALLBACK_TERMINAL_SIZE;
+    }
+    let (rows, columns) = console::Term::stdout().size();
+    (u32::from(columns), u32::from(rows))
+}
+
+fn presentation_environment(available_width: u32, available_height: u32) -> Event {
+    let reduced_motion = std::env::var("VAUCHI_REDUCED_MOTION")
+        .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes"));
+    Event::PresentationEnvironmentChanged {
+        available_width,
+        available_height,
+        input_modes: vec![InputMode::Keyboard],
+        motion: if reduced_motion {
+            MotionPreference::Reduced
+        } else {
+            MotionPreference::Full
+        },
+        color_scheme: None,
+        pinned_actions: true,
+    }
 }
 
 fn run_session(
@@ -71,10 +104,18 @@ fn run_session(
     input: &mut impl BufRead,
     output: &mut impl Write,
     mut secrets: Option<&mut dyn SecretReader>,
+    (available_width, available_height): (u32, u32),
 ) -> io::Result<()> {
     let mut state = PresentationState::default();
     let mut offered = OfferedInputs::default();
     let mut commands = reducer.initial_commands().map_err(reducer_error)?;
+    // The report only says what this terminal draws; refused, Core keeps
+    // the answers in the content, so the session goes on without it.
+    if let Ok(reported) =
+        reducer.dispatch(presentation_environment(available_width, available_height))
+    {
+        commands.extend(reported);
+    }
     loop {
         let effects = state.apply(&commands);
         if state.native_back_requested() {
