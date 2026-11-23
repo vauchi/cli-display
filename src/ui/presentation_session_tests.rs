@@ -251,3 +251,66 @@ fn generic_session_adapts_a_core_file_pick_to_terminal_input() {
             .contains("File path")
     );
 }
+
+struct WakeupReducer {
+    first_wakeup: Command,
+    observed: Vec<Event>,
+}
+
+impl CommandReducer for WakeupReducer {
+    type Error = std::convert::Infallible;
+
+    fn initial_commands(&mut self) -> Result<Vec<Command>, Self::Error> {
+        Ok(vec![
+            Command::ReplaceSurface {
+                surface: surface(1, "Restoring backup"),
+            },
+            self.first_wakeup.clone(),
+        ])
+    }
+
+    fn dispatch(&mut self, event: Event) -> Result<Vec<Command>, Self::Error> {
+        if matches!(event, Event::PresentationEnvironmentChanged { .. }) {
+            return Ok(Vec::new());
+        }
+        self.observed.push(event);
+        Ok(vec![Command::PerformNativeBack])
+    }
+}
+
+// Core asks for a wakeup at once when the next thing to run is its own
+// work, such as a restore behind "Restoring backup…" (vauchi/private#273).
+// The line session has no timer, so it reports that one straight away.
+// @internal
+#[test]
+fn a_wakeup_core_asks_for_at_once_is_reported_before_the_next_prompt() {
+    let mut reducer = WakeupReducer {
+        first_wakeup: Command::schedule_wakeup(0, 1, 1, Some(0)),
+        observed: Vec::new(),
+    };
+    let mut input = std::io::Cursor::new(b"");
+    let mut output = Vec::new();
+
+    run_with_io(&mut reducer, &mut input, &mut output).expect("session ends on native back");
+
+    assert_eq!(reducer.observed, vec![Event::WakeupFired]);
+}
+
+// @internal
+#[test]
+fn a_later_wakeup_is_not_reported_at_once() {
+    let mut reducer = WakeupReducer {
+        first_wakeup: Command::schedule_wakeup(30, 90, 30, None),
+        observed: Vec::new(),
+    };
+    let mut input = std::io::Cursor::new(b"");
+    let mut output = Vec::new();
+
+    run_with_io(&mut reducer, &mut input, &mut output).expect("session ends on native back");
+
+    assert!(
+        !reducer.observed.contains(&Event::WakeupFired),
+        "a 30 s heartbeat is not fired early: {:?}",
+        reducer.observed
+    );
+}
