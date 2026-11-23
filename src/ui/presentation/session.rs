@@ -187,6 +187,12 @@ fn execute_effects(
             Command::ResetApplication => {
                 writeln!(output, "  Application state reset.")?;
             }
+            // Core asks for a wakeup at once when its own work runs next,
+            // such as a restore behind "Restoring backup…"
+            // (vauchi/private#273); this session has no timer for later ones.
+            Command::ScheduleWakeup {
+                delay_millis: 0, ..
+            } => return Ok(Some(Event::WakeupFired)),
             unsupported => {
                 return Ok(Some(Event::HardwareUnavailable {
                     transport: unsupported.variant_name().to_string(),
