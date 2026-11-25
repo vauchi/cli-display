@@ -6,3 +6,4 @@
 pub mod host;
 pub mod invocation;
 pub mod presentation;
+pub mod terminal;
