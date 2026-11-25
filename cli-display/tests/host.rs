@@ -15,7 +15,9 @@ use std::{
     time::Duration,
 };
 
-use vauchi_cli_display::host::{Host, TerminalIo, run_terminal, run_terminal_with_shutdown};
+use vauchi_cli_display::host::{
+    TerminalHost, TerminalIo, run_terminal, run_terminal_with_shutdown,
+};
 use vauchi_contract::{Command, Event};
 
 #[derive(Debug)]
@@ -50,7 +52,7 @@ impl Drop for DropProbe {
     }
 }
 
-impl Host for ScriptedHost {
+impl TerminalHost for ScriptedHost {
     type Error = HostFailed;
 
     fn dispatch(&mut self, event: Event) -> Result<(), HostFailed> {

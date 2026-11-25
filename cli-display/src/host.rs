@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The terminal host loop. An app assembles Core and its hardware behind
-//! [`Host`]; the terminal it drives implements [`TerminalIo`]. The loop
+//! [`TerminalHost`]; the terminal it drives implements [`TerminalIo`]. The loop
 //! moved here from linux-app so every app with a terminal target runs the
 //! same one (ADR-078 step 4, vauchi/private#1234).
 
@@ -14,7 +14,7 @@ use vauchi_contract::{Command, Event};
 const INPUT_WAIT: Duration = Duration::from_millis(50);
 
 /// What the app assembles: Core with its hardware.
-pub trait Host {
+pub trait TerminalHost {
     type Error: Error + Send + Sync + 'static;
 
     /// Hand Core one event.
@@ -43,13 +43,13 @@ pub trait TerminalIo {
 
 /// Run until the display or the input ends. The host is owned for the loop's
 /// lifetime and dropped after the terminal is restored, on every exit path.
-pub fn run_terminal<H: Host>(host: H, terminal: &mut impl TerminalIo) -> io::Result<()> {
+pub fn run_terminal<H: TerminalHost>(host: H, terminal: &mut impl TerminalIo) -> io::Result<()> {
     run_terminal_with_shutdown(host, terminal, || false)
 }
 
 /// As [`run_terminal`], also ending when `shutdown_requested` turns true
 /// between bounded waits.
-pub fn run_terminal_with_shutdown<H: Host>(
+pub fn run_terminal_with_shutdown<H: TerminalHost>(
     mut host: H,
     terminal: &mut impl TerminalIo,
     shutdown_requested: impl Fn() -> bool,
@@ -79,7 +79,7 @@ impl<T: TerminalIo> Drop for RestoreTerminal<'_, T> {
     }
 }
 
-fn run_loop<H: Host>(
+fn run_loop<H: TerminalHost>(
     host: &mut H,
     terminal: &mut impl TerminalIo,
     shutdown_requested: impl Fn() -> bool,
