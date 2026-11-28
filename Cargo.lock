@@ -2921,7 +2921,7 @@ dependencies = [
 
 [[package]]
 name = "vauchi-cli"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "base64",
@@ -2951,7 +2951,7 @@ dependencies = [
 
 [[package]]
 name = "vauchi-cli-display"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "console 0.15.11",
  "serde",
